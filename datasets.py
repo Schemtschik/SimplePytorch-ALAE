@@ -120,6 +120,15 @@ def download_cats(data_dir):
     print("Done!")
 
 
+def download_bitmojis(data_dir):
+    print("Downloading bitmojis from kaggle...")
+    os.environ['KAGGLE_USERNAME'] = "ariel415el"
+    os.environ['KAGGLE_KEY'] = "831db7b1693cd81d31ce16e340ddba03"
+    import kaggle
+    kaggle.api.dataset_download_files('romaingraux/bitmojis', path=data_dir, unzip=True, quiet=False)
+    print("Done!")
+
+
 def download_ffhq_thumbnails(data_dir):
     print("Downloadint FFHQ-thumbnails from kaggle...")
     os.environ['KAGGLE_USERNAME'] = "ariel415el"
@@ -188,6 +197,26 @@ def get_cats(data_dir):
     img_paths = [os.path.join(imgs_dir, fname) for fname in os.listdir(imgs_dir)]
     images = []
     print("Loading cats...")
+    for path in tqdm(img_paths):
+        try:
+            images.append(img_loader(path))
+        except:
+            pass
+    dataset = MemoryDataset(torch.stack(images, 0))
+    val_size = int(len(dataset) * VAL_SET_PORTION)
+    train_dataset, val_dataset = random_split(dataset, [len(dataset) - val_size, val_size])
+
+    return train_dataset, val_dataset
+
+
+def get_bitmojis(data_dir):
+    imgs_dir = os.path.join(data_dir, 'bitmojis')
+    if not os.path.exists(imgs_dir):
+        download_bitmojis(data_dir)
+    img_loader = ImgLoader(center_crop_size=None, resize=64, normalize=True, to_torch=True, dtype=torch.float32)
+    img_paths = [os.path.join(imgs_dir, fname) for fname in os.listdir(imgs_dir)]
+    images = []
+    print("Loading bitmojis...")
     for path in tqdm(img_paths):
         try:
             images.append(img_loader(path))
@@ -286,6 +315,8 @@ def get_dataset(data_root, dataset_name, dim):
         train_dataset, test_dataset = get_lfw(os.path.join(data_root, 'LFW'), dim)
     elif dataset_name.lower() == 'cats':
         train_dataset, test_dataset = get_cats(os.path.join(data_root, 'Cats'))
+    elif dataset_name.lower() == 'bitmojis':
+        train_dataset, test_dataset = get_bitmojis(os.path.join(data_root, 'Bitmojis'))
 
     else:
         raise ValueError("No such available dataset")

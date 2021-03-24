@@ -18,18 +18,18 @@ args = parser.parse_args()
 device = torch.device("cuda:0" if torch.cuda.is_available() and args.device == "cuda:0" else "cpu")
 
 config = {
-    "z_dim": 256,
-    "w_dim": 256,
+    "z_dim": 128,
+    "w_dim": 128,
     "image_dim": 64,
-    "mapping_layers": 8,
+    "mapping_layers": 4,
     "resolutions": [4, 8, 16, 32, 64, 64],
-    "channels": [256, 256, 128, 128, 64, 32, 16],
+    "channels": [x //2 for x in [256, 256, 128, 128, 64, 32, 16]],
     "learning_rates": [0.001, 0.001, 0.001, 0.001, 0.001, 0.001],
-    "phase_lengths": [600_000, 600_000, 600_000, 600_000, 600_000, 1000_000],
+    "phase_lengths": [x * 3 for x in [60_000, 60_000, 60_000, 60_000, 60_000, 100_000]],
     "batch_sizes": [128, 128, 128, 64, 32, 32],
     "n_critic": 1,
-    "dump_imgs_freq": 5000,
-    "checkpoint_freq": 10000
+    "dump_imgs_freq": 500,
+    "checkpoint_freq": 500
 }
 
 if __name__ == '__main__':

@@ -184,9 +184,16 @@ def get_cats(data_dir):
     imgs_dir = os.path.join(data_dir, 'cats')
     if not os.path.exists(imgs_dir):
         download_cats(data_dir)
-    img_loader = ImgLoader(center_crop_size=64, resize=64, normalize=True, to_torch=True, dtype=torch.float32)
+    img_loader = ImgLoader(center_crop_size=None, resize=None, normalize=True, to_torch=True, dtype=torch.float32)
     img_paths = [os.path.join(imgs_dir, fname) for fname in os.listdir(imgs_dir)]
-    dataset = DiskDataset(img_paths, img_loader)
+    images = []
+    print("Loading cats...")
+    for path in tqdm(img_paths):
+        try:
+            images.append(img_loader(path))
+        except:
+            pass
+    dataset = MemoryDataset(torch.stack(images, 0))
     val_size = int(len(dataset) * VAL_SET_PORTION)
     train_dataset, val_dataset = random_split(dataset, [len(dataset) - val_size, val_size])
 

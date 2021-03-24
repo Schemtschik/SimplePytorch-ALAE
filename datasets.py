@@ -110,6 +110,16 @@ def download_celeba(data_dir):
     kaggle.api.dataset_download_files('jessicali9530/celeba-dataset', path=data_dir, unzip=True, quiet=False)
     print("Done!")
 
+
+def download_cats(data_dir):
+    print("Downloading cats from kaggle...")
+    os.environ['KAGGLE_USERNAME'] = "ariel415el"
+    os.environ['KAGGLE_KEY'] = "831db7b1693cd81d31ce16e340ddba03"
+    import kaggle
+    kaggle.api.dataset_download_files('spandan2/cats-faces-64x64-for-generative-models', path=data_dir, unzip=True, quiet=False)
+    print("Done!")
+
+
 def download_ffhq_thumbnails(data_dir):
     print("Downloadint FFHQ-thumbnails from kaggle...")
     os.environ['KAGGLE_USERNAME'] = "ariel415el"
@@ -168,6 +178,20 @@ def get_celeba(data_dir, dim):
     train_dataset, val_dataset = random_split(dataset, [len(dataset) - val_size, val_size])
 
     return train_dataset, val_dataset
+
+
+def get_cats(data_dir):
+    imgs_dir = os.path.join(data_dir, 'cats')
+    if not os.path.exists(imgs_dir):
+        download_cats(data_dir)
+    img_loader = ImgLoader(center_crop_size=64, resize=64, normalize=True, to_torch=True, dtype=torch.float32)
+    img_paths = [os.path.join(imgs_dir, fname) for fname in os.listdir(imgs_dir)]
+    dataset = DiskDataset(img_paths, img_loader)
+    val_size = int(len(dataset) * VAL_SET_PORTION)
+    train_dataset, val_dataset = random_split(dataset, [len(dataset) - val_size, val_size])
+
+    return train_dataset, val_dataset
+
 
 def get_ffhq(data_dir, dim):
     imgs_dir = os.path.join(data_dir, 'thumbnails128x128')
@@ -253,6 +277,8 @@ def get_dataset(data_root, dataset_name, dim):
         train_dataset, test_dataset = get_ffhq(os.path.join(data_root, 'FFHQ-thumbnails'), dim)
     elif dataset_name.lower() == 'lfw':
         train_dataset, test_dataset = get_lfw(os.path.join(data_root, 'LFW'), dim)
+    elif dataset_name.lower() == 'cats':
+        train_dataset, test_dataset = get_cats(os.path.join(data_root, 'Cats'))
 
     else:
         raise ValueError("No such available dataset")

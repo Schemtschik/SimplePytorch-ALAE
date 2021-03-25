@@ -234,7 +234,7 @@ class StyleALAE(ALAE):
                     batch_real_data,
                     tracker,
                     log=(i % 10 == 0),
-                    calc_scores=True,
+                    calc_scores=(i % 100 == 0),
                     valid_ds=test_dataset,
                     final_resolution_idx=self.res_idx,
                     alpha=alpha

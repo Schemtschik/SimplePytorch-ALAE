@@ -113,7 +113,7 @@ class ScoreModel:
 
     def get_pool3_ft(self, dataloader, batch_size, n_img, model=None):
         pool3_ft = np.zeros((n_img, 2048))
-        for i, batch in tqdm(enumerate(dataloader, 0)):
+        for i, batch in tqdm(enumerate(dataloader, 0), total=len(dataloader)):
             batch = batch.type(self.dtype)
             if model is not None:
                 batch = model(batch)

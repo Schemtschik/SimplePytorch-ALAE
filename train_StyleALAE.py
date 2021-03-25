@@ -5,6 +5,10 @@ from dnn.models.ALAE import StyleALAE
 from utils.common_utils import find_latest_checkpoint, get_config_str
 import argparse
 from pprint import pprint
+import wandb
+from metrics import ScoreModel, PPLSampler
+
+wandb.init(project='gans-project', entity='schemtschik')
 
 parser = argparse.ArgumentParser(description='Train arguments')
 parser.add_argument("--output_root", type=str, default="Training_dir-test")
@@ -55,6 +59,7 @@ if __name__ == '__main__':
     # Create model
     model = StyleALAE(model_config=config, device=device)
     model.load_train_state(find_latest_checkpoint(os.path.join(output_dir, 'checkpoints')))
+
     if args.print_model:
         print(model)
 
@@ -62,4 +67,4 @@ if __name__ == '__main__':
     test_samples_z = torch.randn(args.num_debug_images, config['z_dim'], dtype=torch.float32).to(device)
     test_samples = next(iter(test_dataloader))
 
-    model.train(train_dataset, (test_samples_z, test_samples), output_dir)
+    model.train(train_dataset, (test_samples_z, test_samples), test_dataset, output_dir)

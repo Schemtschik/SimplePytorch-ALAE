@@ -1,11 +1,14 @@
 import os
 from tqdm import tqdm
+import torch
 from torchvision.utils import save_image
 from dnn.sub_modules.AlaeModules import *
 from dnn.sub_modules.StyleGanGenerator import StylleGanGenerator, MappingFromLatent
 from utils.tracker import LossTracker
 from dnn.costume_layers import compute_r1_gradient_penalty
 from datasets import get_dataloader, EndlessDataloader
+import wandb
+from metrics import ScoreModel, compute_ppl
 
 COMMON_DEFAULT = {"g_penalty_coeff": 10,
                   'descriminator_layers': 3,
@@ -13,6 +16,7 @@ COMMON_DEFAULT = {"g_penalty_coeff": 10,
                   'discriminator_lr_factor':0.1 # Found in The ALAE official implemenation.
                   }
 
+fid_model = ScoreModel(torch.cuda.is_available())
 
 class ALAE:
     """
@@ -99,7 +103,7 @@ class ALAE:
         batch_reconstructed_w = self.E(self.G(batch_w, **ae_kwargs), **ae_kwargs)
         return torch.mean(((batch_reconstructed_w - batch_w.detach())**2))
 
-    def perform_train_step(self, batch_real_data, tracker, **ae_kwargs):
+    def perform_train_step(self, batch_real_data, tracker, log=False, calc_scores=False, valid_ds=None, **ae_kwargs):
         """
         Optimizes the model with a batch of real images:
              optimize :Disctriminator, Generator and reconstruction loss of the autoencoder
@@ -107,6 +111,7 @@ class ALAE:
         # Step I. Update E, and D: optimizer the discriminator D(E( * ))
         self.ED_optimizer.zero_grad()
         L_adv_ED = self.get_ED_loss(batch_real_data, **ae_kwargs)
+        ED_adv_loss = L_adv_ED.item()
         L_adv_ED.backward()
         self.ED_optimizer.step()
         tracker.update(dict(L_adv_ED=L_adv_ED))
@@ -114,6 +119,7 @@ class ALAE:
         # Step II. Update F, and G: Optimize the generator G(F( * )) to fool D(E ( * ))
         self.FG_optimizer.zero_grad()
         L_adv_FG = self.get_FG_loss(batch_real_data, **ae_kwargs)
+        FG_adv_loss = L_adv_FG.item()
         L_adv_FG.backward()
         self.FG_optimizer.step()
         tracker.update(dict(L_adv_FG=L_adv_FG))
@@ -123,10 +129,30 @@ class ALAE:
         self.FG_optimizer.zero_grad()
         # self.EG_optimizer.zero_grad()
         L_err_EG = self.get_EG_loss(batch_real_data, **ae_kwargs)
+        EG_reconstr_loss = L_err_EG.item()
         L_err_EG.backward()
         # self.EG_optimizer.step()
         self.ED_optimizer.step()
         self.FG_optimizer.step()
+
+        if log:
+            wandb.log({
+                'ED Adversarial Loss': ED_adv_loss,
+                'FG Adversarial LOSS': FG_adv_loss,
+                'EG Reconstruction Loss': EG_reconstr_loss,
+            })
+        if calc_scores:
+            fid = fid_model.get_fid(valid_ds, model=lambda x: self.decode(self.encode(x)))
+            ppl = compute_ppl(
+                self,
+                num_samples=10,
+                epsilon=1e-4,
+                space='w',
+                sampling='end',
+                crop=False,
+                batch_size=2
+            )
+            wandb.log({'FID': fid, 'PPL': ppl})
         tracker.update(dict(L_err_EG=L_err_EG))
 
     def train(self, train_dataset, test_data, output_dir):
@@ -191,7 +217,7 @@ class StyleALAE(ALAE):
         self.G.train()
         return torch.nn.functional.interpolate(generated_images, size=self.cfg['resolutions'][-1])
 
-    def train(self, train_dataset, test_data, output_dir):
+    def train(self, train_dataset, test_data, test_dataset, output_dir):
         tracker = LossTracker(output_dir)
         while self.res_idx < len(self.cfg['resolutions']):
             res = self.cfg['resolutions'][self.res_idx]
@@ -204,7 +230,15 @@ class StyleALAE(ALAE):
                 # first half of the batchs are fade in phase where alpha < 1. in the second half alpha =1
                 alpha = min(1.0, i / batchs_in_phase)
                 batch_real_data = dataloader.next()
-                self.perform_train_step(batch_real_data, tracker, final_resolution_idx=self.res_idx, alpha=alpha)
+                self.perform_train_step(
+                    batch_real_data,
+                    tracker,
+                    log=(i % 10 == 0),
+                    calc_scores=True,
+                    valid_ds=test_dataset,
+                    final_resolution_idx=self.res_idx,
+                    alpha=alpha
+                )
 
                 self.train_step += 1
                 progress_tag = f"gs-{self.train_step}_res-{self.res_idx}={res}x{res}_alpha-{alpha:.2f}"
@@ -222,8 +256,8 @@ class StyleALAE(ALAE):
 
     def load_train_state(self, checkpoint_path):
         if checkpoint_path and os.path.exists(checkpoint_path):
-            checkpoint = torch.load(checkpoint_path)
-            self.F.load_state_dict(checkpoint['F'])
+            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            self.F.load_state_dict(checkpoint['F'],)
             self.G.load_state_dict(checkpoint['G'])
             self.E.load_state_dict(checkpoint['E'])
             self.D.load_state_dict(checkpoint['D'])
@@ -247,57 +281,6 @@ class StyleALAE(ALAE):
                 'FG_optimizer': self.FG_optimizer.state_dict(),
                 'last_uncompleted_res_idx': self.res_idx,
                 'global_step': self.train_step,
-            },
-            save_path
-        )
-
-
-class MLP_ALAE(ALAE):
-    """
-    Implements the MLP version of ALAE. all submodules here are composed of MLP layers
-    """
-    def __init__(self, model_config, device):
-        super().__init__(model_config, 'MLP', device)
-
-    def generate(self, z_vectors, **ae_kwargs):
-        return self.G(self.F(z_vectors))
-
-    def encode(self, img, **ae_kwargs):
-        return self.E(img)
-
-    def decode(self, latent_vectors, **ae_kwargs):
-        return self.G(latent_vectors)
-
-    def train(self, train_dataset, test_data, output_dir):
-        train_dataloader = get_dataloader(train_dataset, self.cfg['batch_size'], resize=None, device=self.device)
-        tracker = LossTracker(output_dir)
-        self.set_optimizers_lr(self.cfg['lr'])
-        for epoch in range(self.cfg['epochs']):
-            for batch_real_data in tqdm(train_dataloader):
-                self.perform_train_step(batch_real_data, tracker)
-
-            tracker.plot()
-            dump_path = os.path.join(output_dir, 'images', f"epoch-{epoch}.jpg")
-            self.save_sample(dump_path, test_data[0], test_data[1])
-
-            self.save_train_state(os.path.join(output_dir, "last_ckp.pth"))
-
-    def load_train_state(self, checkpoint_path):
-        if checkpoint_path and os.path.exists(checkpoint_path):
-            checkpoint = torch.load(checkpoint_path)
-            self.F.load_state_dict(checkpoint['F'])
-            self.G.load_state_dict(checkpoint['G'])
-            self.E.load_state_dict(checkpoint['E'])
-            self.D.load_state_dict(checkpoint['D'])
-            print(f"Checkpoint {os.path.basename(checkpoint_path)} loaded.")
-
-    def save_train_state(self, save_path):
-        torch.save(
-            {
-                'F': self.F.state_dict(),
-                'G': self.G.state_dict(),
-                'E': self.E.state_dict(),
-                'D': self.D.state_dict(),
             },
             save_path
         )

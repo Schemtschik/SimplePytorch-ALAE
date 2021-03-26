@@ -142,7 +142,11 @@ class ALAE:
                 'EG Reconstruction Loss': EG_reconstr_loss,
             })
         if calc_scores:
-            fid = fid_model.get_fid(valid_ds, model=lambda x: self.decode(self.encode(x)))
+            fid = fid_model.get_fid(valid_ds, model=lambda x: self.decode(
+                self.encode(x, final_resolution_idx=self.res_idx, alpha=1.0),
+                final_resolution_idx=self.res_idx,
+                alpha=1.0
+            ))
             ppl = compute_ppl(
                 self,
                 num_samples=10,

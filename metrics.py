@@ -128,7 +128,6 @@ class ScoreModel:
         mu2, sigma2 = self.__calc_stats(self.get_pool3_ft(dataloader, batch_size, n_img))
         mu1, sigma1 = self.__calc_stats(self.get_pool3_ft(dataloader, batch_size, n_img, model))
         fid = calculate_frechet_distance(mu1, sigma1, mu2, sigma2)
-
         return fid
 
 
